@@ -1,5 +1,5 @@
-FROM alpine:3.9
-MAINTAINER Consul Team <consul@hashicorp.com>
+FROM adoptopenjdk/openjdk11:ubi-slim
+MAINTAINER Raymond Ploski <https://github.com/rayploski/docker-consul-openjdk-11>
 
 # This is the release of Consul to pull in.
 ENV CONSUL_VERSION=1.7.2
@@ -9,34 +9,36 @@ ENV HASHICORP_RELEASES=https://releases.hashicorp.com
 
 # Create a consul user and group first so the IDs get set the same way, even as
 # the rest of this may change over time.
-RUN addgroup consul && \
-    adduser -S -G consul consul
+RUN groupadd consul && \
+    useradd -r -g consul consul
 
 # Set up certificates, base tools, and Consul.
 # libc6-compat is needed to symlink the shared libraries for ARM builds
-RUN set -eux && \
-    apk add --no-cache ca-certificates curl dumb-init gnupg libcap openssl su-exec iputils jq libc6-compat && \
-    gpg --keyserver pgp.mit.edu --recv-keys 91A6E7F85D05C65630BEF18951852D87348FFC4C && \
+RUN dnf update && \
+    dnf install curl ca-certificates wget iputils unzip -y && \
+    dnf clean all &&\
     mkdir -p /tmp/build && \
     cd /tmp/build && \
-    apkArch="$(apk --print-arch)" && \
-    case "${apkArch}" in \
-        aarch64) consulArch='arm64' ;; \
-        armhf) consulArch='armhfv6' ;; \
-        x86) consulArch='386' ;; \
+    wget  https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 &&\
+    mv ./jq-linux64 /usr/local/bin/jq &&\
+    chmod a+x /usr/local/bin/jq &&\
+    sArch="$(uname -m)" && \
+    case "${sArch}" in \
         x86_64) consulArch='amd64' ;; \
-        *) echo >&2 "error: unsupported architecture: ${apkArch} (see ${HASHICORP_RELEASES}/consul/${CONSUL_VERSION}/)" && exit 1 ;; \
+        x86) consulArch='386' ;; \
+        armhf) consulArch='armhfv6' ;; \
+        armv71) consulArch='armhfv6' ;; \
+        *) echo >&2 "error: unsupported architecture: ${sArch} (see ${HASHICORP_RELEASES}/consul/${CONSUL_VERSION}/)" && exit 1 ;; \
     esac && \
     wget ${HASHICORP_RELEASES}/consul/${CONSUL_VERSION}/consul_${CONSUL_VERSION}_linux_${consulArch}.zip && \
     wget ${HASHICORP_RELEASES}/consul/${CONSUL_VERSION}/consul_${CONSUL_VERSION}_SHA256SUMS && \
     wget ${HASHICORP_RELEASES}/consul/${CONSUL_VERSION}/consul_${CONSUL_VERSION}_SHA256SUMS.sig && \
-    gpg --batch --verify consul_${CONSUL_VERSION}_SHA256SUMS.sig consul_${CONSUL_VERSION}_SHA256SUMS && \
     grep consul_${CONSUL_VERSION}_linux_${consulArch}.zip consul_${CONSUL_VERSION}_SHA256SUMS | sha256sum -c && \
-    unzip -d /bin consul_${CONSUL_VERSION}_linux_${consulArch}.zip && \
-    cd /tmp && \
-    rm -rf /tmp/build && \
-    apk del gnupg openssl && \
-    rm -rf /root/.gnupg && \
+    unzip consul_${CONSUL_VERSION}_linux_${consulArch}.zip && \
+    mv ./consul /usr/local/bin/consul &&\
+    chmod a+x /usr/local/bin/consul &&\
+    rm -rf /tmp/build &&\
+
 # tiny smoke test to ensure the binary we downloaded runs
     consul version
 
